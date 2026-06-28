@@ -1,39 +1,81 @@
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import os
 
+class case_no_file(object):
+    '''File or directory does not exist.'''
+
+    def test(self, handler):
+        return not os.path.exists(handler.full_path)
+
+    def act(self, handler):
+        raise Exception("'{0}' not found".format(handler.path))
+
+
+class case_existing_file(object):
+    '''File exists.'''
+
+    def test(self, handler):
+        return os.path.isfile(handler.full_path)
+
+    def act(self, handler):
+        handler.handle_file(handler.full_path)
+
+
+class case_always_fail(object):
+    '''Base case if nothing else worked.'''
+
+    def test(self, handler):
+        return True
+
+    def act(self, handler):
+        raise Exception("Unknown object '{0}'".format(handler.path))
+
+class case_directory_index_file(object):
+    '''Serve index.html page for a directory.'''
+
+    def index_path(self, handler):
+        return os.path.join(handler.full_path, 'index.html')
+
+    def test(self, handler):
+        return os.path.isdir(handler.full_path) and \
+               os.path.isfile(self.index_path(handler))
+
+    def act(self, handler):
+        handler.handle_file(self.index_path(handler))
+
 class RequestHandler(BaseHTTPRequestHandler):
+    
+    cases = [case_no_file, case_existing_file, case_always_fail, case_directory_index_file]
+
     '''Handle HTTP requests by returning a dynamic page.'''
 
     Page = '''\
-<html>
-<body>
-<p>Hello, web!</p>
-<p>Time: {date_time}</p>
-<p>Your IP: {client_host}</p>
-<p>Port: {client_port}</p>
-<p>Request: {command}</p>
-<p>Path: {path}</p>
-</body>
-</html>
-'''
+    <html>
+    <body>
+    <p>Hello, web!</p>
+    <p>Time: {date_time}</p>
+    <p>Your IP: {client_host}</p>
+    <p>Port: {client_port}</p>
+    <p>Request: {command}</p>
+    <p>Path: {path}</p>
+    </body>
+    </html>
+    '''
 
     def do_GET(self):
         try:
-            # Figure out what exactly is being requested
-            full_path = os.getcwd() + self.path
 
-            # if it does not exist,
-            if not os.path.exists(full_path):
-                raise Exception("'{0}' not found".format(self.path))
-            
-            # ...it's a file...
-            elif os.path.isfile(full_path):
-                self.handle_file(full_path)
-            
-            # ...it's something we don't handle.
-            else:
-                raise Exception("Unknown object '{0}'".format(self.path))
-            
+            # Figure out what exactly is being requested.
+            self.full_path = os.getcwd() + self.path
+
+            # Figure out how to handle it.
+            for case in self.cases:
+                handler = case()
+                if handler.test(self):
+                    handler.act(self)
+                    break
+
+        # Handle errors.
         except Exception as msg:
             self.handle_error(msg)
 
